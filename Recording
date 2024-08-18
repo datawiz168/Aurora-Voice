@@ -1,0 +1,96 @@
+import sounddevice as sd
+import numpy as np
+from pydub import AudioSegment
+import os
+import time
+
+def list_audio_devices():
+    devices = sd.query_devices()
+    for i, device in enumerate(devices):
+        if device['max_input_channels'] > 0:
+            print(f"Input Device id {i} - {device['name']}")
+    return devices
+
+def detect_voice(audio_data, rms_threshold=0.01, zero_crossing_threshold=0.02):
+    rms = np.sqrt(np.mean(audio_data**2))
+    zero_crossings = np.sum(np.abs(np.diff(np.sign(audio_data)))) / (2 * len(audio_data))
+    print(f"RMS: {rms}, Zero Crossings: {zero_crossings}")  # Debug information
+    return rms > rms_threshold and zero_crossings > zero_crossing_threshold
+
+def record_audio_to_mp3(filename, max_duration=60, sample_rate=44100, voice_timeout=5, silence_buffer=2):
+    devices = list_audio_devices()
+    
+    device_id = next((i for i, dev in enumerate(devices) if dev['max_input_channels'] > 0 and "USBAudio" in dev['name']), None)
+    
+    if device_id is not None:
+        print(f"Selected device: {devices[device_id]['name']}")
+    else:
+        print("USB microphone not found, using default device")
+        device_id = sd.default.device[0]
+
+    try:
+        print("Waiting for voice...")
+        with sd.InputStream(samplerate=sample_rate, device=device_id, channels=1, dtype='float32') as stream:
+            recording = []
+            is_recording = False
+            last_voice_time = None
+            silent_chunks = 0  # Silence counter
+            silence_buffer_chunks = int(sample_rate * silence_buffer)  # Silence buffer
+            sliding_window = []
+
+            while True:
+                audio_chunk, _ = stream.read(int(sample_rate * 0.1))  # Read 0.1 seconds of audio
+                audio_chunk = audio_chunk.flatten()  # Ensure audio data is one-dimensional
+                current_time = time.time()
+
+                if detect_voice(audio_chunk):
+                    if not is_recording:
+                        print("Voice detected, starting recording.")
+                        is_recording = True
+                        last_voice_time = current_time  # Reset the time of last voice detection
+                    recording.extend(audio_chunk)
+                    sliding_window.clear()  # Clear the sliding window
+                    silent_chunks = 0  # Reset silence counter
+                    last_voice_time = current_time
+                else:
+                    sliding_window.extend(audio_chunk)
+                    if len(sliding_window) > silence_buffer_chunks:
+                        sliding_window = sliding_window[-silence_buffer_chunks:]  # Keep the sliding window size
+
+                    silent_chunks += len(audio_chunk)
+                    if is_recording and silent_chunks > silence_buffer_chunks:
+                        print("Silence detected, stopping recording.")
+                        break
+
+                if len(recording) / sample_rate >= max_duration:
+                    print(f"Maximum recording time of {max_duration} seconds reached, stopping recording.")
+                    break
+
+        if not recording:
+            print("No voice detected.")
+            return
+
+        recording = np.array(recording)
+        print("Recording completed")
+
+        # Convert NumPy array to AudioSegment
+        audio_segment = AudioSegment(
+            (recording * 32767).astype(np.int16).tobytes(),
+            frame_rate=sample_rate,
+            sample_width=2,
+            channels=1
+        )
+
+        # Export directly to MP3
+        output_filename = f"{filename}.mp3"
+        audio_segment.export(output_filename, format="mp3")
+        print(f"Audio saved as {output_filename}")
+
+    except Exception as e:
+        print(f"An error occurred during recording: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+# Example usage
+if __name__ == "__main__":
+    record_audio_to_mp3("test_recording", max_duration=60, voice_timeout=5, silence_buffer=2)
