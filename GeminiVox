@@ -1,0 +1,75 @@
+import requests
+import os
+import io
+import google.generativeai as genai
+import PIL.Image
+from playsound import playsound
+
+# ElevenLabs API configuration
+CHUNK_SIZE = 1024
+ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL"
+ELEVENLABS_API_KEY = ""  # Replace with your ElevenLabs API key
+
+# Google Gemini API configuration
+GEMINI_API_KEY = ""  # Replace with your Gemini API key
+genai.configure(api_key=GEMINI_API_KEY)
+
+# Initialize Gemini model
+model = genai.GenerativeModel('gemini-1.5-flash-latest')
+
+# Function to generate text using Gemini
+def generate_text_with_gemini(image_path):
+    image = PIL.Image.open(image_path)
+    try:
+        response = model.generate_content(["Describe this image", image])
+        return response.text
+    except Exception as e:
+        print(f"Error occurred while generating text with Gemini: {e}")
+        return None
+
+# Function to convert text to speech using ElevenLabs and play it directly
+def text_to_speech_and_play(text):
+    headers = {
+        "Accept": "audio/mpeg",
+        "Content-Type": "application/json",
+        "xi-api-key": ELEVENLABS_API_KEY
+    }
+    data = {
+        "text": text,
+        "model_id": "eleven_turbo_v2_5",
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.5
+        }
+    }
+    try:
+        response = requests.post(ELEVENLABS_URL, json=data, headers=headers)
+        response.raise_for_status()
+        
+        # Save audio data to a temporary file
+        temp_file = 'temp_audio.mp3'
+        with open(temp_file, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
+                if chunk:
+                    f.write(chunk)
+        
+        # Play the audio
+        print("Playing audio...")
+        playsound(temp_file)
+        
+        # Delete the temporary file
+        os.remove(temp_file)
+        print("Audio playback completed")
+    except Exception as e:
+        print(f"Error occurred while converting or playing audio with ElevenLabs: {e}")
+
+# Main execution
+if __name__ == "__main__":
+    image_path = r"D:\More Pies\微信图片_20210913203626.jpg"  # Replace with your image path
+    generated_text = generate_text_with_gemini(image_path)
+    if generated_text:
+        print("Generated text:")
+        print(generated_text)
+        text_to_speech_and_play(generated_text)
+    else:
+        print("Failed to generate text.")
