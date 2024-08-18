@@ -1,6 +1,6 @@
-import requests
+import requests  
 import os
-import io
+import pathlib
 import google.generativeai as genai
 import PIL.Image
 from playsound import playsound
@@ -11,17 +11,21 @@ ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxM
 ELEVENLABS_API_KEY = ""  # Replace with your ElevenLabs API key
 
 # Google Gemini API configuration
-GEMINI_API_KEY = ""  # Replace with your Gemini API key
+GEMINI_API_KEY = ''  # Replace with your Gemini API key
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Initialize Gemini model
 model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
 # Function to generate text using Gemini
-def generate_text_with_gemini(image_path):
+def generate_text_with_gemini(image_path, audio_path):
     image = PIL.Image.open(image_path)
+    audio_blob = {
+        "mime_type": "audio/mp3",
+        "data": pathlib.Path(audio_path).read_bytes()
+    }
     try:
-        response = model.generate_content(["Describe this image", image])
+        response = model.generate_content(["Describe the image and summarize the audio content in two short sentences each.", image, audio_blob])
         return response.text
     except Exception as e:
         print(f"Error occurred while generating text with Gemini: {e}")
@@ -66,7 +70,8 @@ def text_to_speech_and_play(text):
 # Main execution
 if __name__ == "__main__":
     image_path = r"D:\More Pies\微信图片_20210913203626.jpg"  # Replace with your image path
-    generated_text = generate_text_with_gemini(image_path)
+    audio_path = r"D:\More Pies\output01.mp3"  # Replace with your MP3 file path
+    generated_text = generate_text_with_gemini(image_path, audio_path)
     if generated_text:
         print("Generated text:")
         print(generated_text)
