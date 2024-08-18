@@ -1,0 +1,40 @@
+import google.generativeai as genai
+import os
+import requests
+import PIL.Image
+
+# Set up HTTP proxy
+# proxies = {
+#     'http': 'http://127.0.0.1:10809',
+#     'https': 'http://127.0.0.1:10809'
+# }
+
+# Force all HTTP requests to use the proxy
+# os.environ['HTTP_PROXY'] = proxies['http']
+# os.environ['HTTPS_PROXY'] = proxies['https']
+
+# Verify if the proxy is working
+# try:
+#     r = requests.get('https://api.ipify.org?format=json', proxies=proxies)
+#     print(f"Your IP: {r.json()['ip']}")
+# except Exception as e:
+#     print(f"Error checking IP: {e}")
+
+# Configure API key
+genai.configure(api_key='')
+
+# Initialize the model
+model = genai.GenerativeModel('gemini-1.5-flash-latest')
+
+# Open the image file
+organ = PIL.Image.open('D:\More Pies\微信图片_20210913203626.jpg')
+
+# Generate content (combining text and image)
+try:
+    response = model.generate_content(["Describe this image", organ])
+    print(response.text)
+except Exception as e:
+    print(f"An error occurred: {e}")
+    if hasattr(e, 'response'):
+        print(f"Response content: {e.response.content}")
+    print(f"Error type: {type(e)}")
