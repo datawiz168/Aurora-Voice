@@ -1,0 +1,196 @@
+import requests  
+import os
+import pathlib
+import google.generativeai as genai
+import PIL.Image
+import pyautogui
+import sounddevice as sd
+import numpy as np
+from pydub import AudioSegment
+import time
+from playsound import playsound
+
+# ElevenLabs API configuration
+CHUNK_SIZE = 1024
+ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL"  
+ELEVENLABS_API_KEY = ""  # Replace with your ElevenLabs API key
+
+# Google Gemini API configuration
+GEMINI_API_KEY = ''  # Replace with your Gemini API key
+genai.configure(api_key=GEMINI_API_KEY)
+
+# Initialize Gemini model
+model = genai.GenerativeModel('gemini-1.5-flash-latest')
+
+# Function to capture screenshot
+def capture_screenshot():
+    screenshot = pyautogui.screenshot()
+    screenshot_path = "screenshot.png"
+    screenshot.save(screenshot_path)
+    print(f"Screenshot saved as '{screenshot_path}'")
+    return screenshot_path
+
+# Function to generate text using Gemini
+def generate_text_with_gemini(image_path, audio_path):
+    image = PIL.Image.open(image_path)
+    audio_blob = {
+        "mime_type": "audio/mp3",
+        "data": pathlib.Path(audio_path).read_bytes()
+    }
+    try:
+        response = model.generate_content(["根据音频里的问题以及給您的图片，用简练的语言回答问题。", image, audio_blob])
+        return response.text
+    except Exception as e:
+        print(f"Error occurred while generating text with Gemini: {e}")
+        return None
+
+# Function to convert text to speech using ElevenLabs and play it directly
+def text_to_speech_and_play(text):
+    headers = {
+        "Accept": "audio/mpeg",
+        "Content-Type": "application/json",
+        "xi-api-key": ELEVENLABS_API_KEY
+    }
+    data = {
+        "text": text,
+        "model_id": "eleven_turbo_v2_5",
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.5
+        }
+    }
+    try:
+        response = requests.post(ELEVENLABS_URL, json=data, headers=headers)
+        response.raise_for_status()
+        
+        # Save audio data to a temporary file
+        temp_file = 'temp_audio.mp3'
+        with open(temp_file, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
+                if chunk:
+                    f.write(chunk)
+        
+        # Play the audio
+        print("Playing audio...")
+        playsound(temp_file)
+        
+        # Delete the temporary file
+        os.remove(temp_file)
+        print("Audio playback completed")
+    except Exception as e:
+        print(f"Error occurred while converting or playing audio with ElevenLabs: {e}")
+
+# Function to list available audio devices
+def list_audio_devices():
+    devices = sd.query_devices()
+    for i, device in enumerate(devices):
+        if device['max_input_channels'] > 0:
+            print(f"Input Device id {i} - {device['name']}")
+    return devices
+
+# Function to detect voice
+def detect_voice(audio_data, rms_threshold=0.01, zero_crossing_threshold=0.02):
+    rms = np.sqrt(np.mean(audio_data**2))
+    zero_crossings = np.sum(np.abs(np.diff(np.sign(audio_data)))) / (2 * len(audio_data))
+    print(f"RMS: {rms}, Zero Crossings: {zero_crossings}")  # Debug information
+    return rms > rms_threshold and zero_crossings > zero_crossing_threshold
+
+# Function to record audio and save it as MP3
+def record_audio_to_mp3(filename="recording", max_duration=60, sample_rate=44100, voice_timeout=5, silence_buffer=2):
+    devices = list_audio_devices()
+    
+    device_id = next((i for i, dev in enumerate(devices) if dev['max_input_channels'] > 0 and "USBAudio" in dev['name']), None)
+    
+    if device_id is not None:
+        print(f"Selected device: {devices[device_id]['name']}")
+    else:
+        print("USB microphone not found, using default device")
+        device_id = sd.default.device[0]
+
+    try:
+        print("Waiting for voice...")
+        with sd.InputStream(samplerate=sample_rate, device=device_id, channels=1, dtype='float32') as stream:
+            recording = []
+            is_recording = False
+            last_voice_time = None
+            silent_chunks = 0  # Silence counter
+            silence_buffer_chunks = int(sample_rate * silence_buffer)  # Silence buffer
+            sliding_window = []
+
+            while True:
+                audio_chunk, _ = stream.read(int(sample_rate * 0.1))  # Read 0.1 seconds of audio
+                audio_chunk = audio_chunk.flatten()  # Ensure audio data is one-dimensional
+                current_time = time.time()
+
+                if detect_voice(audio_chunk):
+                    if not is_recording:
+                        print("Voice detected, starting recording.")
+                        is_recording = True
+                        last_voice_time = current_time  # Reset the time of last voice detection
+                    recording.extend(audio_chunk)
+                    sliding_window.clear()  # Clear the sliding window
+                    silent_chunks = 0  # Reset silence counter
+                    last_voice_time = current_time
+                else:
+                    sliding_window.extend(audio_chunk)
+                    if len(sliding_window) > silence_buffer_chunks:
+                        sliding_window = sliding_window[-silence_buffer_chunks:]  # Keep the sliding window size
+
+                    silent_chunks += len(audio_chunk)
+                    if is_recording and silent_chunks > silence_buffer_chunks:
+                        print("Silence detected, stopping recording.")
+                        break
+
+                if len(recording) / sample_rate >= max_duration:
+                    print(f"Maximum recording time of {max_duration} seconds reached, stopping recording.")
+                    break
+
+        if not recording:
+            print("No voice detected.")
+            return None
+
+        recording = np.array(recording)
+        print(f"Recording duration: {len(recording) / sample_rate} seconds")  # Print recording duration for debugging
+
+        # Convert NumPy array to AudioSegment
+        audio_segment = AudioSegment(
+            (recording * 32767).astype(np.int16).tobytes(),
+            frame_rate=sample_rate,
+            sample_width=2,
+            channels=1
+        )
+
+        # Generate unique filename with timestamp
+        output_filename = f"{filename}_{int(time.time())}.mp3"
+        audio_segment.export(output_filename, format="mp3")
+        print(f"Audio saved as {output_filename}")
+        return output_filename
+
+    except Exception as e:
+        print(f"An error occurred during recording: {str(e)}")
+        return None
+
+# Main execution
+if __name__ == "__main__":
+    # Capture a screenshot and use it as the image input
+    image_path = capture_screenshot()
+    
+    # Generate a unique filename using timestamp
+    filename = "test_recording"
+
+    # Record audio and save it as MP3
+    audio_path = record_audio_to_mp3(filename=filename, max_duration=60, voice_timeout=5, silence_buffer=2)
+    
+    if audio_path:
+        # Generate text based on the screenshot and recorded audio
+        generated_text = generate_text_with_gemini(image_path, audio_path)
+        
+        if generated_text:
+            print("Generated text:")
+            print(generated_text)
+            # Optionally, play the generated text as speech
+            text_to_speech_and_play(generated_text)
+        else:
+            print("Failed to generate text.")
+    else:
+        print("Failed to record audio.")
