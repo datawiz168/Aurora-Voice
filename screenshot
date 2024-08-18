@@ -1,0 +1,13 @@
+import pyautogui
+
+# Capture the entire screen
+screenshot = pyautogui.screenshot()
+
+# Save the screenshot
+screenshot.save("screenshot.png")
+
+print("Screenshot saved as 'screenshot.png'")
+
+# If you want to capture a specific region, you can use:
+# region_screenshot = pyautogui.screenshot(region=(0, 0, 300, 400))
+# region_screenshot.save("region_screenshot.png")
