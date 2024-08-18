@@ -1,0 +1,28 @@
+import os
+from google.cloud import speech
+
+# Set the GOOGLE_APPLICATION_CREDENTIALS environment variable
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = "D:\\Aurora-Voice\\eloquent-hold-432905-q0-6ad17f7fd10d.json"
+
+def transcribe_audio(audio_file_path):
+    client = speech.SpeechClient()
+    with open(audio_file_path, "rb") as audio_file:
+        content = audio_file.read()
+    audio = speech.RecognitionAudio(content=content)
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.MP3,  # Set to MP3 format
+        sample_rate_hertz=16000,  # Adjust this based on your audio file's sample rate
+        language_code="en-US",
+    )
+    try:
+        response = client.recognize(config=config, audio=audio)
+        if response.results:
+            for result in response.results:
+                print("Transcript: {}".format(result.alternatives[0].transcript))
+        else:
+            print("No transcription results")
+    except Exception as e:
+        print(f"Error during transcription: {e}")
+
+# Example call
+transcribe_audio("D:\\More Pies\\output02.mp3")
